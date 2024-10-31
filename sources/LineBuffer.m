@@ -114,6 +114,12 @@ static const NSInteger kUnicodeVersion = 9;
 @synthesize mayHaveDoubleWidthCharacter = _mayHaveDoubleWidthCharacter;
 @synthesize delegate = _delegate;
 
+- (void)commitLastBlock {
+    if (_maintainBidiInfo) {
+        [_lineBlocks.lastBlock reloadBidiInfo];
+    }
+}
+
 // Append a block
 - (LineBlock *)_addBlockOfSize:(int)size {
     self.dirty = YES;
@@ -121,6 +127,7 @@ static const NSInteger kUnicodeVersion = 9;
     // possible size. The compression code has no way of knowing how big these
     // buffers are.
     [_lineBlocks.lastBlock shrinkToFit];
+    [self commitLastBlock];
     return [_lineBlocks addBlockOfSize:size
                                 number:num_dropped_blocks + _lineBlocks.count
            mayHaveDoubleWidthCharacter:self.mayHaveDoubleWidthCharacter];
@@ -160,10 +167,12 @@ static const NSInteger kUnicodeVersion = 9;
     return self;
 }
 
-- (LineBuffer *)initWithDictionary:(NSDictionary *)dictionary {
+- (LineBuffer *)initWithDictionary:(NSDictionary *)dictionary
+                  maintainBidiInfo:(BOOL)maintainBidiInfo {
     self = [super init];
     if (self) {
         [self commonInit];
+        _maintainBidiInfo = maintainBidiInfo;
         if ([dictionary[kLineBufferVersionKey] intValue] != kLineBufferVersion) {
             return [[LineBuffer alloc] init];
         }
@@ -184,7 +193,16 @@ static const NSInteger kUnicodeVersion = 9;
             if (!block) {
                 return [[LineBuffer alloc] init];
             }
+            if (maybeWrapper == [dictionary[kLineBufferBlocksKey] lastObject]) {
+                // Reset status in the last (non-committed) block to force bidi info to be recomputed
+                // prior to display.
+                [block eraseRTLStatusInAllCharacters];
+            }
             [_lineBlocks addBlock:block];
+            if (maybeWrapper != [dictionary[kLineBufferBlocksKey] lastObject]) {
+#warning TODO: Save and restore bidi info instead of recomputing it, which will be very expensive.
+                [self commitLastBlock];
+            }
         }
     }
     return self;
@@ -549,6 +567,15 @@ static int RawNumLines(LineBuffer* buffer, int width) {
     return [block metadataForLineNumber:remainder width:width];
 }
 
+- (iTermBidiDisplayInfo * _Nullable)bidiInfoForLine:(int)lineNumber width:(int)width {
+    int remainder = 0;
+    LineBlock *block = [_lineBlocks blockContainingLineNumber:lineNumber
+                                                        width:width
+                                                    remainder:&remainder];
+    return [block bidiInfoForLineNumber:remainder width:width];
+}
+
+
 - (iTermImmutableMetadata)metadataForRawLineWithWrappedLineNumber:(int)lineNum width:(int)width {
     int remainder = 0;
     LineBlock *block = [_lineBlocks blockContainingLineNumber:lineNum width:width remainder:&remainder];
@@ -685,6 +712,9 @@ static int RawNumLines(LineBuffer* buffer, int width) {
     }
     for (LineBlock *block in other->_lineBlocks.blocks) {
         [_lineBlocks addBlock:[block copyWithAbsoluteBlockNumber:num_dropped_blocks + _lineBlocks.count]];
+        if (block != other->_lineBlocks.lastBlock) {
+            [self commitLastBlock];
+        }
     }
     if (cursor) {
         cursor_rawline = other->cursor_rawline + offset;
@@ -945,7 +975,7 @@ NS_INLINE int TotalNumberOfRawLines(LineBuffer *self) {
     self.dirty = YES;
     LineBlock *block = _lineBlocks.lastBlock;
     if ([block hasPartial]) {
-        int last_line_length = [block getRawLineLength: [block numEntries]-1];
+        int last_line_length = [block lengthOfRawLine:[block numEntries]-1];
         cursor_x = x + last_line_length;
         cursor_rawline = -1;
     } else {
@@ -957,12 +987,13 @@ NS_INLINE int TotalNumberOfRawLines(LineBuffer *self) {
 }
 
 - (BOOL)getCursorInLastLineWithWidth:(int)width atX:(int *)x {
+    [self removeTrailingEmptyBlocks];
     int total_raw_lines = TotalNumberOfRawLines(self);
     if (cursor_rawline == total_raw_lines-1) {
         // The cursor is on the last line in the buffer.
         LineBlock* block = _lineBlocks.lastBlock;
-        int last_line_length = [block getRawLineLength: ([block numEntries]-1)];
-        const screen_char_t *lastRawLine = [block rawLine: ([block numEntries]-1)];
+        int last_line_length = [block lengthOfRawLine:([block numEntries]-1)];
+        const screen_char_t *lastRawLine = [block rawLine:([block numEntries]-1)];
         int num_overflow_lines = [block numberOfFullLinesFromBuffer:lastRawLine length:last_line_length width:width];
 
         int min_x = OffsetOfWrappedLine(lastRawLine,
@@ -1218,7 +1249,7 @@ NS_INLINE int TotalNumberOfRawLines(LineBuffer *self) {
                 const NSNumber *rawLineNumber = [block rawLineNumberAtWrappedLineOffset:y - yoffset
                                                                                   width:width];
                 if (rawLineNumber) {
-                    const int length = [block getRawLineLength:rawLineNumber.intValue];
+                    const int length = [block lengthOfRawLine:rawLineNumber.intValue];
                     [expandedResultRanges addObject:[[ResultRange alloc] initWithPosition:positionToConvert + passed
                                                                                    length:length]];
 
@@ -1633,7 +1664,7 @@ NS_INLINE int TotalNumberOfRawLines(LineBuffer *self) {
     fg.backgroundColorMode = ColorModeAlternate;
     bg.backgroundColor = ALTSEM_SYSTEM_MESSAGE;
     bg.backgroundColorMode = ColorModeAlternate;
-    StringToScreenChars(message, buffer, fg, bg, &len, NO, NULL, NULL, NO, kUnicodeVersion, NO);
+    StringToScreenChars(message, buffer, fg, bg, &len, NO, NULL, NULL, NO, kUnicodeVersion, NO, NULL);
     [self appendLine:buffer
               length:0
              partial:NO
@@ -1704,6 +1735,9 @@ NS_INLINE int TotalNumberOfRawLines(LineBuffer *self) {
     [self sanityCheck];
 }
 
+- (ScreenCharArray *)lastRawLine {
+    return _lineBlocks.lastBlock.lastRawLine;
+}
 
 #pragma mark - NSCopying
 
@@ -1723,6 +1757,7 @@ NS_INLINE int TotalNumberOfRawLines(LineBuffer *self) {
     theCopy->num_wrapped_lines_width = num_wrapped_lines_width;
     theCopy->droppedChars = droppedChars;
     theCopy->_mayHaveDoubleWidthCharacter = _mayHaveDoubleWidthCharacter;
+    theCopy->_maintainBidiInfo = _maintainBidiInfo;
     [theCopy sanityCheck];
 
     return theCopy;
@@ -1930,6 +1965,9 @@ NS_INLINE int TotalNumberOfRawLines(LineBuffer *self) {
         LineBlock *sourceBlock = source->_lineBlocks[_lineBlocks.count];
         LineBlock *theCopy = [sourceBlock cowCopy];
         [_lineBlocks addBlock:theCopy];
+        if (_lineBlocks.count < source->_lineBlocks.count) {
+            [self commitLastBlock];
+        }
         if (gDebugLogging) {
             [_lineBlocks sanityCheck:droppedChars];
         }
