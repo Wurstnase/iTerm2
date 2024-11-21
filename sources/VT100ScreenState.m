@@ -815,7 +815,7 @@ NSString *VT100ScreenTerminalStateKeyPath = @"Path";
         }
         [self.currentGrid appendLines:numLines toLineBuffer:temp];
     }
-
+    [temp commitLastBlock];
     [temp encode:encoder maxLines:maxLines80];
     *intervalOffsetPtr = intervalOffset;
     return linesDroppedForBrevity;

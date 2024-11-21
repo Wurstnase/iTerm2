@@ -232,6 +232,13 @@
     if (_guts->_useDWCCache) {
         _guts->_array[i].double_width_characters = nil;
     }
+    // Search forwards for the end-of-metadata delimiter. Additional LineBlockMetadata fields will be found there, if any.
+    while (j < components.count && ![@[] isEqual:components[j]]) {
+        j++;
+    }
+    if (j < components.count && [@[] isEqual:components[j]]) {
+        j++;
+    }
     if (components.count > j) {
         _guts->_array[i].bidi_display_info = [[iTermBidiDisplayInfo alloc] initWithDictionary:components[j++]];
     }
@@ -284,12 +291,24 @@
 - (NSArray *)encodedArray {
     NSMutableArray *metadataArray = [NSMutableArray array];
     for (int i = 0; i < _guts->_numEntries; i++) {
-        [metadataArray addObject:[@[ @(_guts->_array[i].continuation.code),
-                                     @(_guts->_array[i].continuation.backgroundColor),
-                                     @(_guts->_array[i].continuation.bgGreen),
-                                     @(_guts->_array[i].continuation.bgBlue),
-                                     @(_guts->_array[i].continuation.backgroundColorMode) ]
-                                  arrayByAddingObjectsFromArray:iTermMetadataEncodeToArray(_guts->_array[i].lineMetadata)]];
+        // The array is defined as base objects followed by any number of metadata objects (none of
+        // which may be arrays). Optionally, it may be followed by an empty array followed by a
+        // dictionary containing bidi display info. The empty array is used as a delimiter for the
+        // end of metadata objets.
+        NSArray *baseObjects = @[ @(_guts->_array[i].continuation.code),
+                                  @(_guts->_array[i].continuation.backgroundColor),
+                                  @(_guts->_array[i].continuation.bgGreen),
+                                  @(_guts->_array[i].continuation.bgBlue),
+                                  @(_guts->_array[i].continuation.backgroundColorMode) ];
+        NSArray *metadataObjects = iTermMetadataEncodeToArray(_guts->_array[i].lineMetadata);
+
+        NSMutableArray *combined = [baseObjects mutableCopy];
+        [combined addObjectsFromArray:metadataObjects];
+        if (_guts->_array[i].bidi_display_info != nil) {
+            [combined addObject:@[]];
+            [combined addObject:_guts->_array[i].bidi_display_info.dictionaryValue];
+        }
+        [metadataArray addObject:combined];
     }
     return metadataArray;
 }

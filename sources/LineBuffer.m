@@ -199,10 +199,7 @@ static const NSInteger kUnicodeVersion = 9;
                 [block eraseRTLStatusInAllCharacters];
             }
             [_lineBlocks addBlock:block];
-            if (maybeWrapper != [dictionary[kLineBufferBlocksKey] lastObject]) {
-#warning TODO: Save and restore bidi info instead of recomputing it, which will be very expensive.
-                [self commitLastBlock];
-            }
+            // We do not call commitLastBlock because the block can restore all of its state.
         }
     }
     return self;

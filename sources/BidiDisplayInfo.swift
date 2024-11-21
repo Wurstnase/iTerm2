@@ -257,7 +257,7 @@ class BidiDisplayInfoObjc: NSObject {
 
     @objc
     var dictionaryValue: [String: Any] {
-        return [Keys.lut.rawValue: guts.lut.map { NSNumber(value: $0) },
+        return [Keys.lut.rawValue: guts.lut.efficientlyEncodedForPlist(),
                 Keys.rtlIndexes.rawValue: rtlIndexes.rangeView.map { NSValue(range: NSRange($0)) } ]
     }
 
@@ -266,13 +266,14 @@ class BidiDisplayInfoObjc: NSObject {
         guard iTermAdvancedSettingsModel.bidi() else {
             return nil
         }
-        guard let lutObj = dictionary[Keys.lut.rawValue], let lutArray = lutObj as? Array<NSNumber> else {
+        guard let lutObj = dictionary[Keys.lut.rawValue],
+              let encodedLUTArray = lutObj as? Array<Any>,
+              let lut = Array<Int32>(efficientlyEncodedForPlist: encodedLUTArray) else {
             return nil
         }
         guard let indexesObj = dictionary[Keys.rtlIndexes.rawValue], let indexesArray = indexesObj as? Array<NSValue> else {
             return nil
         }
-        let lut = lutArray.map { Int32($0.intValue) }
         let indexes = IndexSet(ranges: indexesArray.compactMap { Range($0.rangeValue) })
         guts = BidiDisplayInfo(lut: lut,
                                rtlIndexes: indexes)
@@ -464,6 +465,93 @@ struct CollectionRangeIterator<C: Collection>: IteratorProtocol, Sequence where 
 extension Collection where Element: BinaryInteger {
     func rangeIterator() -> CollectionRangeIterator<Self> {
         return CollectionRangeIterator(collection: self)
+    }
+}
+
+fileprivate struct Chunk {
+    var start: Int32
+    var count: Int32
+    var stride: Int32
+
+    init(start: Int32,
+         count: Int32,
+         stride: Int32) {
+        self.start = start
+        self.count = count
+        self.stride = stride
+    }
+
+    init?(_ value: Any) {
+        if let i = value as? Int32 {
+            start = i
+            count = 1
+            stride = 0
+        } else if let a = value as? [Int32] {
+            start = a[0]
+            count = a[1]
+            stride = a[2]
+        } else {
+            return nil
+        }
+    }
+
+    func extend(_ value: Int32) -> Chunk? {
+        if stride == 0 {
+            if value == start + 1 {
+                return Chunk(start: start, count: count + 1, stride: 1)
+            } else if value == start - 1 {
+                return Chunk(start: start, count: count + 1, stride: -1)
+            } else {
+                return nil
+            }
+        } else if value == start + count * stride {
+            return Chunk(start: start, count: count + 1, stride: stride)
+        } else {
+            return nil
+        }
+    }
+
+    var plistValues: [Any] {
+        switch stride {
+        case 0:
+            return [start]
+        case 1, -1:
+            if count < 3 {
+                return (0..<count).map { start + stride * $0 }
+            }
+            return [[start, count, stride]]
+        default:
+            fatalError()
+        }
+    }
+
+    var decoded: [Int32] {
+        if stride == 0 {
+            return [start]
+        }
+        return (0..<count).map { start + stride * $0 }
+    }
+}
+
+extension Array where Element == Int32 {
+    init?(efficientlyEncodedForPlist array: [Any]) {
+        let chunks = array.compactMap { Chunk($0) }
+        if chunks.count < array.count {
+            // Bad chunk found
+            return nil
+        }
+        self = chunks.flatMap { $0.decoded }
+    }
+
+    func efficientlyEncodedForPlist() -> [Any] {
+        let chunks = reduce(into: [Chunk]()) { partialResult, value in
+            if let last = partialResult.last, let extended = last.extend(value) {
+                partialResult[partialResult.count - 1] = extended
+                return
+            }
+            partialResult.append(Chunk(start: value, count: 1, stride: 0))
+        }
+        return chunks.flatMap { $0.plistValues }
     }
 }
 

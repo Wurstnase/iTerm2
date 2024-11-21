@@ -99,6 +99,7 @@ void iTermMetadataReplaceWithCopy(iTermMetadata *obj) {
 
 NSArray *iTermImmutableMetadataEncodeToArray(iTermImmutableMetadata obj) {
     iTermExternalAttributeIndex *eaIndex = iTermImmutableMetadataGetExternalAttributesIndex(obj);
+    // NOTE: None of these may be arrays.
     return @[ @(obj.timestamp),
               [eaIndex dictionaryValue] ?: @{},
               @(obj.rtlFound) ];
