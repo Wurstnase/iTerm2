@@ -773,11 +773,15 @@ static int RawNumLines(LineBuffer* buffer, int width) {
 
     int length, eol;
     screen_char_t continuation;
+    iTermImmutableMetadata metadata;
     const screen_char_t *line = [block getWrappedLineWithWrapWidth:width
                                                            lineNum:&remainder
                                                         lineLength:&length
                                                  includesEndOfLine:&eol
-                                                      continuation:&continuation];
+                                                           yOffset:nil
+                                                      continuation:&continuation
+                                              isStartOfWrappedLine:nil
+                                                          metadata:&metadata];
     if (continuationPtr) {
         *continuationPtr = continuation;
     }
@@ -788,6 +792,7 @@ static int RawNumLines(LineBuffer* buffer, int width) {
     }
     ScreenCharArray *result = [[ScreenCharArray alloc] initWithLine:line
                                                              length:length
+                                                           metadata:metadata
                                                        continuation:continuation];
     ITAssertWithMessage(result.length <= width, @"Length too long");
     return result;

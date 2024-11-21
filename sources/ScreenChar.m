@@ -823,7 +823,6 @@ void ScreenCharInvert(screen_char_t *c) {
     c->inverse = !c->inverse;
 }
 
-#warning TODO: Test this
 BOOL AnnotateRightToLeftInScreenChars(screen_char_t *c, int len) {
     unichar *buffer = nil;
     int *deltas = nil;

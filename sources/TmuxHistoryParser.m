@@ -31,7 +31,10 @@
         ambiguousIsDoubleWidth:(BOOL)ambiguousIsDoubleWidth
                 unicodeVersion:(NSInteger)unicodeVersion
                alternateScreen:(BOOL)alternateScreen
-                      rtlFound:(BOOL *)rtlFound {
+                      rtlFound:(BOOL *)rtlFoundPtr {
+    if (rtlFoundPtr) {
+        *rtlFoundPtr = NO;
+    }
     screen_char_t *screenChars;
     NSMutableData *result = [NSMutableData data];
     NSData *histData = [hist dataUsingEncoding:NSUTF8StringEncoding];
@@ -54,6 +57,7 @@
             // Allocate double space in case they're all double-width characters.
             screenChars = iTermMalloc(sizeof(screen_char_t) * 2 * string.length);
             int len = 0;
+            BOOL rtlFound = NO;
             StringToScreenChars(string,
                                 screenChars,
                                 [terminal foregroundColorCode],
@@ -65,7 +69,10 @@
                                 NO,
                                 unicodeVersion,
                                 alternateScreen,
-                                rtlFound);
+                                &rtlFound);
+            if (rtlFound && rtlFoundPtr != nil) {
+                *rtlFoundPtr = YES;
+            }
             if ([token isAscii] && [terminal charset]) {
                 ConvertCharsToGraphicsCharset(screenChars, len);
             }
@@ -86,7 +93,10 @@
                          ambiguousIsDoubleWidth:(BOOL)ambiguousIsDoubleWidth
                                  unicodeVersion:(NSInteger)unicodeVersion
                                 alternateScreen:(BOOL)alternateScreen
-                                       rtlFound:(BOOL *)rtlFound {
+                                       rtlFound:(BOOL *)rtlFoundPtr {
+    if (rtlFoundPtr) {
+        *rtlFoundPtr = NO;
+    }
     if (![response length]) {
         return [NSArray array];
     }
@@ -96,12 +106,16 @@
     terminal.tmuxMode = YES;
     [terminal setEncoding:NSUTF8StringEncoding];
     for (NSString *line in lines) {
+        BOOL rtlFound = NO;
         NSData *data = [self dataForHistoryLine:line
                                    withTerminal:terminal
                          ambiguousIsDoubleWidth:ambiguousIsDoubleWidth
                                  unicodeVersion:unicodeVersion
                                 alternateScreen:alternateScreen
-                                       rtlFound:rtlFound];
+                                       rtlFound:&rtlFound];
+        if (rtlFoundPtr != nil && rtlFound) {
+            *rtlFoundPtr = YES;
+        }
         if (!data) {
             return nil;
         }

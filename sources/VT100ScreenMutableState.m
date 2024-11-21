@@ -5055,7 +5055,7 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
                 metadata:iTermMetadataMakeImmutable(metadata)
             continuation:continuation];
     }
-    NSMutableArray *wrappedLines = [NSMutableArray array];
+    NSMutableArray<ScreenCharArray *> *wrappedLines = [NSMutableArray array];
     int n = [temp numLinesWithWidth:self.currentGrid.size.width];
     int numberOfConsecutiveEmptyLines = 0;
     for (int i = 0; i < n; i++) {
@@ -5084,9 +5084,10 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
                              length:line.length
                             partial:(line.eol != EOL_HARD)
                               width:self.currentGrid.size.width
-                           metadata:iTermMetadataMakeImmutable(metadata)
+                           metadata:line.metadata
                        continuation:continuation];
     }
+    [self.linebuffer commitLastBlock];
     if (!self.unlimitedScrollback) {
         [self.linebuffer dropExcessLinesWithWidth:self.currentGrid.size.width];
     }
