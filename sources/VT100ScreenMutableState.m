@@ -4441,8 +4441,11 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
         iTermBidiDisplayInfo *bidiInfo = [[iTermBidiDisplayInfo alloc] initUnpaddedWithScreenCharArray:joined];
         [iTermBidiDisplayInfo annotateWithBidiInfo:bidiInfo msca:joined];
         const int prefixLength = prefix.length;
+        int offset = prefixLength;
         for (int lineOffset = 0; lineOffset < scas.count; lineOffset++) {
-            const int offset = prefixLength + lineOffset * width;
+            // These lines come from the grid and already have DWC_SKIP in the right place.
+            const int lineLength = MIN(joined.length - offset, width);
+
             if (prefix) {
                 if (lineOffset == 0) {
                     [self.linebuffer removeLastRawLine];
@@ -4456,14 +4459,16 @@ basedAtAbsoluteLineNumber:(long long)absoluteLineNumber
                     prefix = nil;
                 }
             }
-#warning TODO: Deal with dwc splitting here
-            iTermBidiDisplayInfo *sub = [bidiInfo subInfoInRange:NSMakeRange(offset, width)
+
+            iTermBidiDisplayInfo *sub = [bidiInfo subInfoInRange:NSMakeRange(offset, lineLength)
                                                    paddedToWidth:width];
             DLog(@"Set bidi for line %d to %@", lineOffset + line, sub);
             [self.primaryGrid setBidiInfo:sub forLine:lineOffset + line];
             [self.primaryGrid setCharactersInLine:lineOffset + line
                                                to:joined.line + offset
-                                           length:MIN(width, joined.length - offset)];
+                                           length:lineLength];
+
+            offset += lineLength;
         }
         [self.linebuffer commitLastBlock];
     }];
